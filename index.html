@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Gudang Online (Final)</title>
+
+  <!-- 1. Muat CSS Vuetify & Material Design Icons -->
+  <link href="https://cdn.jsdelivr.net/npm/vuetify@3.6.10/dist/vuetify.min.css" rel="stylesheet">
+  <link href="https://cdn.jsdelivr.net/npm/@mdi/font@5.x/css/materialdesignicons.min.css" rel="stylesheet">
+  
+  <!-- 2. Muat Library SheetJS (xlsx.js) untuk Export Excel -->
+  <script src="https://cdn.sheetjs.com/xlsx-0.20.2/package/dist/xlsx.full.min.js"></script>
+  
+  <style>
+    input[type='number']::-webkit-inner-spin-button,
+    input[type='number']::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+    .v-container { padding-bottom: 80px !important; }
+  </style>
+</head>
+<body>
+
+  <div id="app">
+    <v-app>
+      <v-app-bar app color="primary" density="compact">
+        <v-app-bar-title class="text-center">{{ pageTitle }}</v-app-bar-title>
+      </v-app-bar>
+
+      <v-main style="background-color: #f4f5f7;">
+        <v-container fluid>
+          <!-- HALAMAN 1: STOK SEMUA BARANG -->
+          <div v-if="currentPage === 'stok'">
+            <v-card>
+              <v-card-title class="d-flex align-center pe-2">
+                <v-text-field v-model="search" density="compact" label="Cari barang..." prepend-inner-icon="mdi-magnify" variant="solo-filled" flat hide-details single-line></v-text-field>
+                <v-btn color="success" class="ms-2" prepend-icon="mdi-file-excel" @click="exportStokToExcel">Export</v-btn>
+              </v-card-title>
+              <v-divider></v-divider>
+              <v-data-table :headers="barangHeaders" :items="barang" :search="search" :loading="isLoading" item-value="id">
+                <template v-slot:top>
+                  <v-btn color="primary" class="ma-2" @click="openDialog('tambah')" block>
+                    <v-icon left>mdi-plus</v-icon> Tambah Barang Baru
+                  </v-btn>
+                </template>
+                <template v-slot:item.actions="{ item }">
+                  <v-icon class="me-2" @click="openDialog('edit', item)" color="orange">mdi-pencil</v-icon>
+                  <v-icon @click="openDialog('hapus', item)" color="red">mdi-delete</v-icon>
+                </template>
+              </v-data-table>
+            </v-card>
+          </div>
+
+          <!-- HALAMAN 2 & 3: FORM TRANSAKSI -->
+          <div v-if="currentPage === 'masuk' || currentPage === 'keluar'">
+            <v-card max-width="600" class="mx-auto">
+              <v-card-text class="pa-4">
+                <v-form @submit.prevent="catatTransaksi(currentPage.toUpperCase())">
+                  <v-autocomplete v-model="formTransaksi.id" :items="barang" :item-title="item => `${item.kode} - ${item.nama}`" item-value="id" label="Pilih Barang" variant="outlined" :rules="[v => !!v || 'Barang harus dipilih']"></v-autocomplete>
+                  <v-text-field v-model.number="formTransaksi.jumlah" :label="`Jumlah ${currentPage}`" type="number" variant="outlined" :rules="[v => Number(v) > 0 || 'Jumlah harus lebih dari 0', checkStok]"></v-text-field>
+                  <v-btn type="submit" color="primary" block :loading="isSubmitting">Simpan Transaksi</v-btn>
+                </v-form>
+              </v-card-text>
+            </v-card>
+          </div>
+          
+          <!-- HALAMAN 4: LAPORAN -->
+          <div v-if="currentPage === 'laporan'">
+            <v-card>
+              <!-- FITUR BARU: FILTER TANGGAL -->
+              <v-card-text>
+                <v-row align="center">
+                  <v-col cols="12" sm="5">
+                    <v-text-field type="date" v-model="tanggalMulai" label="Dari Tanggal" density="compact" hide-details></v-text-field>
+                  </v-col>
+                  <v-col cols="12" sm="5">
+                    <v-text-field type="date" v-model="tanggalSelesai" label="Sampai Tanggal" density="compact" hide-details></v-text-field>
+                  </v-col>
+                  <v-col cols="12" sm="2">
+                     <v-btn @click="resetFilterTanggal" block variant="tonal">Reset</v-btn>
+                  </v-col>
+                </v-row>
+              </v-card-text>
+              <v-divider></v-divider>
+
+              <v-card-title>Ringkasan Laporan (Sesuai Filter)</v-card-title>
+              <v-list>
+                <v-list-item>
+                  <v-list-item-title class="text-green">Total Barang Datang</v-list-item-title>
+                  <template v-slot:append><v-chip color="green">{{ laporan.totalMasuk }}</v-chip></template>
+                </v-list-item>
+                <v-list-item>
+                  <v-list-item-title class="text-red">Total Barang Keluar</v-list-item-title>
+                   <template v-slot:append><v-chip color="red">{{ laporan.totalKeluar }}</v-chip></template>
+                </v-list-item>
+              </v-list>
+              <v-divider></v-divider>
+              <v-card-title class="d-flex align-center">
+                Detail Riwayat Transaksi
+                <v-spacer></v-spacer>
+                <v-btn color="success" prepend-icon="mdi-file-excel" @click="exportLaporanToExcel">Export</v-btn>
+              </v-card-title>
+              <v-data-table :headers="riwayatHeaders" :items="filteredRiwayat" :loading="isLoading" item-value="id"></v-data-table>
+            </v-card>
+          </div>
+        </v-container>
+      </v-main>
+
+      <!-- Navigasi Bawah -->
+      <v-bottom-navigation v-model="navValue" grow app>
+        <v-btn value="stok" @click="currentPage = 'stok'"><v-icon>mdi-package-variant-closed</v-icon><span>Stok</span></v-btn>
+        <v-btn value="masuk" @click="currentPage = 'masuk'"><v-icon>mdi-arrow-bottom-left-bold-outline</v-icon><span>Masuk</span></v-btn>
+        <v-btn value="keluar" @click="currentPage = 'keluar'"><v-icon>mdi-arrow-top-right-bold-outline</v-icon><span>Keluar</span></v-btn>
+        <v-btn value="laporan" @click="currentPage = 'laporan'"><v-icon>mdi-clipboard-list-outline</v-icon><span>Laporan</span></v-btn>
+      </v-bottom-navigation>
+
+      <!-- Dialog -->
+      <v-dialog v-model="dialog" max-width="500px">
+        <v-card>
+          <v-card-title><span class="text-h5">{{ dialogTitle }}</span></v-card-title>
+          <v-card-text v-if="dialogMode !== 'hapus'">
+            <v-text-field v-model="editedItem.kode" label="Kode Barang (SKU)"></v-text-field>
+            <v-text-field v-model="editedItem.nama" label="Nama Barang"></v-text-field>
+            <v-text-field v-model.number="editedItem.stok" label="Stok Awal" type="number" :disabled="dialogMode === 'edit'"></v-text-field>
+          </v-card-text>
+          <v-card-text v-else class="text-center">Yakin mau hapus barang <strong>{{ editedItem.nama }}</strong>?</v-card-text>
+          <v-card-actions>
+            <v-spacer></v-spacer>
+            <v-btn color="blue-darken-1" @click="closeDialog">Batal</v-btn>
+            <v-btn :color="dialogMode === 'hapus' ? 'red-darken-1' : 'blue-darken-1'" @click="simpanDialog">
+              {{ dialogMode === 'hapus' ? 'Hapus' : 'Simpan' }}
+            </v-btn>
+          </v-card-actions>
+        </v-card>
+      </v-dialog>
+      
+      <v-snackbar v-model="snackbar.show" :color="snackbar.color" :timeout="2000">{{ snackbar.text }}</v-snackbar>
+    </v-app>
+  </div>
+
+  <!-- Muat Script Vue.js & Vuetify -->
+  <script src="https://cdn.jsdelivr.net/npm/vue@3/dist/vue.global.prod.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/vuetify@3.6.10/dist/vuetify.min.js"></script>
+  
+  <!-- Muat Script Firebase -->
+  <script type="module" src="main.js">
+   
+  </script>
+
+</body>
+</html>
