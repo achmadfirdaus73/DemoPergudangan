@@ -158,9 +158,43 @@ import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/fireba
           return (item && item.stok >= Number(jumlahKeluar)) || 'Jumlah melebihi stok!';
         };
         
-        const exportStokToExcel = () => { /* ... sama seperti sebelumnya ... */ };
+        const exportStokToExcel = () => {
+            const dataArray = barang.value;
+            if (!dataArray || dataArray.length === 0) { showSnackbar('Tidak ada data stok untuk diexport', 'warning'); return; }
+            
+            const dataToExport = dataArray.map(item => ({
+                'Kode Barang': item.kode,
+                'Nama Barang': item.nama,
+                'Stok Saat Ini': item.stok
+            }));
+
+            const worksheet = XLSX.utils.json_to_sheet(dataToExport);
+            const workbook = XLSX.utils.book_new();
+            XLSX.utils.book_append_sheet(workbook, worksheet, "Daftar Stok");
+            XLSX.writeFile(workbook, `Daftar_Stok_Barang_${new Date().toLocaleDateString('id-ID')}.xlsx`);
+        };
         
-        const exportLaporanToExcel = () => { /* ... sama seperti sebelumnya ... */ };
+        const exportLaporanToExcel = () => {
+            const dataArray = filteredRiwayat.value;
+            if (!dataArray || dataArray.length === 0) {
+                showSnackbar('Tidak ada data laporan untuk diexport', 'warning');
+                return;
+            }
+            const summaryData = [
+                { 'Laporan Transaksi Gudang': `Periode: ${tanggalMulai.value || 'Semua'} - ${tanggalSelesai.value || 'Semua'}` },
+                { '': '' },
+                { 'Deskripsi': 'Total Barang Datang', 'Jumlah': laporan.value.totalMasuk },
+                { 'Deskripsi': 'Total Barang Keluar', 'Jumlah': laporan.value.totalKeluar }
+            ];
+            const detailData = dataArray.map(item => ({ 'Tanggal': item.tanggal, 'Kode Barang': item.kodeBarang, 'Nama Barang': item.namaBarang, 'Tipe': item.tipe, 'Jumlah': item.jumlah }));
+            const worksheet = XLSX.utils.json_to_sheet(summaryData, { skipHeader: true });
+            XLSX.utils.sheet_add_aoa(worksheet, [[' ']], { origin: -1 });
+            XLSX.utils.sheet_add_aoa(worksheet, [['Tanggal', 'Kode Barang', 'Nama Barang', 'Tipe', 'Jumlah']], { origin: -1 });
+            XLSX.utils.sheet_add_json(worksheet, detailData, { origin: -1, skipHeader: true });
+            const workbook = XLSX.utils.book_new();
+            XLSX.utils.book_append_sheet(workbook, worksheet, "Laporan");
+            XLSX.writeFile(workbook, `Laporan_Transaksi_Gudang.xlsx`);
+        };
 
         const resetFilterTanggal = () => {
             tanggalMulai.value = null;
